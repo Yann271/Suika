@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Suika Game — Prototype</title>
+<style>
+    :root{
+        --bg:#f7f3ff;
+        --panel:#fff;
+        --muted:#9aa0b4;
+        --accent:#7bd389;
+        --glass: rgba(255,255,255,0.6);
+        --container-w:360px;
+        --container-h:640px;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+    body{
+        display:flex;align-items:center;justify-content:center;
+        background:linear-gradient(180deg,var(--bg),#fff 60%);
+        color:#223;
+    }
+    .wrap{
+        width:calc(var(--container-w) + 220px);
+        display:flex;gap:18px;align-items:flex-start;
+        padding:28px;
+    }
+    .game-panel{
+        width:var(--container-w);
+        background:linear-gradient(180deg,#f8fafc,#fff);
+        padding:12px;border-radius:12px;box-shadow:0 6px 30px rgba(30,40,60,0.08);
+        border:1px solid rgba(10,10,20,0.03);
+    }
+    .hud{
+        display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;
+    }
+    .title{font-weight:700;font-size:18px}
+    .score{
+        background:var(--glass);padding:6px 10px;border-radius:10px;font-weight:600;
+        font-size:14px;
+    }
+    .container{
+        position:relative;width:100%;height:var(--container-h);
+        border-radius:10px;overflow:hidden;background:linear-gradient(180deg,#eaf3ff,#fff);
+        box-shadow:inset 0 6px 20px rgba(30,40,60,0.04);
+        border:6px solid rgba(0,0,0,0.06);
+    }
+    canvas{display:block;background:transparent}
+    .sidebar{
+        width:180px;padding:6px 0;
+    }
+    .card{
+        background:var(--panel);padding:12px;border-radius:10px;margin-bottom:12px;
+        box-shadow:0 4px 18px rgba(20,28,48,0.05);border:1px solid rgba(10,10,30,0.02);
+    }
+    .preview{
+        display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:8px;
+    }
+    .preview .label{font-size:13px;color:var(--muted)}
+    .btn{
+        display:inline-block;padding:8px 10px;border-radius:8px;background:linear-gradient(180deg,#7ee0a4,#4ec078);
+        color:#08311a;font-weight:700;border:0;cursor:pointer;box-shadow:0 6px 14px rgba(76,164,113,0.18);
+    }
+    .muted{color:var(--muted);font-size:13px}
+    .footer-note{font-size:12px;color:var(--muted);margin-top:6px}
+    .controls{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5}
+    .gameOver{
+        position:absolute;left:0;top:0;width:100%;height:100%;display:none;
+        background:linear-gradient(180deg,rgba(10,12,20,0.15),rgba(10,12,20,0.2));
+        align-items:center;justify-content:center;border-radius:10px;
+    }
+    .gameOver.show{display:flex}
+    .go-box{background:#fff;padding:18px;border-radius:12px;text-align:center;box-shadow:0 12px 40px rgba(20,30,40,0.2)}
+    .go-box h2{margin:0 0 10px;font-size:18px}
+    .small{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="game-panel">
+        <div class="hud">
+            <div class="title">Suika — Prototype</div>
+            <div class="score" id="score">Score: 0</div>
+        </div>
+
+        <div class="container" id="container">
+            <canvas id="c" width="360" height="640"></canvas>
+            <div class="gameOver" id="gameOver">
+                <div class="go-box">
+                    <h2 id="goText">Game Over</h2>
+                    <div class="small" id="finalScore">Score: 0</div>
+                    <div style="margin-top:12px">
+                        <button class="btn" id="restart">Restart</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="sidebar">
+        <div class="card preview">
+            <div class="label">Next</div>
+            <canvas id="preview" width="120" height="120" style="background:transparent;border-radius:8px"></canvas>
+            <div class="muted">Click inside the container to drop the next fruit.<br>Try to merge identical fruits!</div>
+        </div>
+
+        <div class="card">
+            <div style="font-weight:700;margin-bottom:6px">Controls</div>
+            <div class="controls">
+                - Click to spawn (choose horizontal position)<br>
+                - Space to spawn at center<br>
+                - R to reset
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="font-weight:700;margin-bottom:6px">Fruit stages</div>
+            <div class="muted">11 stages, from Cherry → Watermelon. Merge identical fruits to level up.</div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+/*
+    Suika Game — Simple prototype
+    - Circle-based physics (simple)
+    - Merge identical fruits into next level
+    - Preview, score, game over when fruit stabilizes above top
+    - Single-file, no external assets
+*/
+
+const FRUITS = [
+    {name:'Cherry', color:'#ff4d6d', radius:12},
+    {name:'Strawberry', color:'#ff758f', radius:15},
+    {name:'Grape', color:'#8b5cf6', radius:18},
+    {name:'Orange', color:'#ff944d', radius:20},
+    {name:'Lemon', color:'#ffd166', radius:22},
+    {name:'Apple', color:'#7bd389', radius:26},
+    {name:'Peach', color:'#ffb3a7', radius:30},
+    {name:'Papaya', color:'#ff8f66', radius:34},
+    {name:'Melon', color:'#b0f1b7', radius:40},
+    {name:'Large Melon', color:'#6fd18a', radius:48},
+    {name:'Watermelon', color:'#2e8b57', radius:56}
+];
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', {alpha:true});
+const previewCanvas = document.getElementById('preview');
+const pctx = previewCanvas.getContext('2d');
+const container = document.getElementById('container');
+const scoreEl = document.getElementById('score');
+const gameOverEl = document.getElementById('gameOver');
+const restartBtn = document.getElementById('restart');
+const goText = document.getElementById('goText');
+const finalScore = document.getElementById('finalScore');
+
+const W = canvas.width, H = canvas.height;
+const gravity = 0.6;
+const drawOffset = {x:0,y:0};
+
+let fruits = [];
+let particles = [];
+let nextLevel = randomInt(0,2); // start preview between small stages
+let score = 0;
+let running = true;
+let frame = 0;
+let idCounter = 1;
+
+function randomInt(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+function makeFruit(level,x,y,vx=0,vy=0){
+    return {id:idCounter++, level, x, y, vx, vy, r:FRUITS[level].radius, merged:false, stableFrames:0};
+}
+
+function spawnAt(x){
+    if(!running) return;
+    const level = nextLevel;
+    nextLevel = Math.min(randomInt(0,Math.min(2,level+1)), FRUITS.length-1); // small randomness biased upward
+    const f = makeFruit(level, x, -FRUITS[level].radius - 6, (Math.random()-0.5)*2, 0);
+    fruits.push(f);
+    // small plop sound
+    simplePlop(FRUITS[level].color, 0.02);
+}
+
+canvas.addEventListener('click', (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width/rect.width);
+    spawnAt(x);
+});
+document.addEventListener('keydown',(e)=>{
+    if(e.code === 'Space'){ spawnAt(W/2); e.preventDefault(); }
+    if(e.key.toLowerCase() === 'r'){ reset(); }
+});
+
+restartBtn.addEventListener('click', reset);
+
+function reset(){
+    fruits = [];
+    particles = [];
+    score = 0;
+    running = true;
+    nextLevel = randomInt(0,2);
+    gameOverEl.classList.remove('show');
+    updateScore();
+}
+
+// simple audio feedback using WebAudio
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function simplePlop(color, vol=0.05){
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.value = 300 + Math.random()*400;
+    g.gain.value = vol;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.08 + Math.random()*0.06);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+}
+
+/* Physics & game loop */
+function tick(){
+    frame++;
+    if(!running) { draw(); requestAnimationFrame(tick); return; }
+
+    // integrate
+    for(let f of fruits){
+        f.vy += gravity * (1 + f.level*0.02);
+        f.vx *= 0.999;
+        f.x += f.vx;
+        f.y += f.vy;
+
+        // wall collisions
+        if(f.x - f.r < 6){
+            f.x = 6 + f.r;
+            f.vx = -f.vx * 0.45;
+        }
+        if(f.x + f.r > W - 6){
+            f.x = W - 6 - f.r;
+            f.vx = -f.vx * 0.45;
+        }
+        // floor
+        if(f.y + f.r > H - 6){
+            f.y = H - 6 - f.r;
+            if(Math.abs(f.vy) < 1.5) f.vy = 0;
+            else f.vy = -f.vy * 0.18;
+        }
+        // top soft cap (can go above)
+        if(f.y - f.r < -60) f.y = -60 + f.r;
+    }
+
+    // simple pair collisions and merge detection
+    for(let i=0;i<fruits.length;i++){
+        for(let j=i+1;j<fruits.length;j++){
+            const A=fruits[i], B=fruits[j];
+            if(!A || !B) continue;
+            const dx = B.x - A.x, dy = B.y - A.y;
+            let d = Math.hypot(dx,dy) || 0.0001;
+            const minD = A.r + B.r;
+            if(d < minD){
+                // separate
+                const overlap = (minD - d) / 2;
+                const nx = dx/d, ny = dy/d;
+                A.x -= nx * overlap;
+                A.y -= ny * overlap;
+                B.x += nx * overlap;
+                B.y += ny * overlap;
+                // velocity exchange (inelastic)
+                const k = 0.6;
+                const ax = A.vx, ay = A.vy, bx = B.vx, by = B.vy;
+                A.vx = (ax*(1-k) + bx*k); A.vy = (ay*(1-k) + by*k);
+                B.vx = (bx*(1-k) + ax*k); B.vy = (by*(1-k) + ay*k);
+            }
+            // merge condition: same level, not merged, slow relative speed, close enough
+            if(A.level === B.level && !A.merged && !B.merged){
+                const relSpeed = Math.hypot(A.vx - B.vx, A.vy - B.vy);
+                if(d < minD * 0.92 && relSpeed < 3.5){
+                    // create new fruit at midpoint
+                    const nl = Math.min(A.level + 1, FRUITS.length - 1);
+                    const nx = (A.x + B.x)/2, ny = (A.y + B.y)/2;
+                    const nvx = (A.vx + B.vx)/2;
+                    const nvy = (A.vy + B.vy)/2;
+                    A.merged = B.merged = true;
+                    // spawn particle burst & sound
+                    spawnParticles(nx, ny, FRUITS[nl].color);
+                    simplePlop(FRUITS[nl].color, 0.04 + nl*0.006);
+                    // schedule replacement to avoid modifying array during loop
+                    setTimeout(()=> {
+                        // remove merging fruits
+                        fruits = fruits.filter(ff=> ff !== A && ff !== B);
+                        const newf = makeFruit(nl, nx, ny, nvx*0.7, nvy*0.7);
+                        fruits.push(newf);
+                        score += (nl+1) * 10;
+                        updateScore();
+                    }, 0);
+                }
+            }
+        }
+    }
+
+    // particles update
+    for(let p of particles){
+        p.vy += 0.18;
+        p.x += p.vx; p.y += p.vy;
+        p.life -= 1;
+    }
+    particles = particles.filter(p=>p.life>0);
+
+    // check stability above top => game over
+    for(let f of fruits){
+        if(f.y - f.r < 0){
+            // if moving slowly and stays near top for some frames => game over
+            if(Math.abs(f.vy) < 0.8 && Math.abs(f.vx) < 0.8){
+                f.stableFrames++;
+                if(f.stableFrames > 36){
+                    endGame();
+                }
+            } else {
+                f.stableFrames = 0;
+            }
+        } else {
+            f.stableFrames = 0;
+        }
+    }
+
+    draw();
+    requestAnimationFrame(tick);
+}
+
+function spawnParticles(x,y,color){
+    for(let i=0;i<14;i++){
+        const a = Math.random()*Math.PI*2;
+        const s = Math.random()*3 + 1;
+        particles.push({
+            x:x, y:y, vx:Math.cos(a)*s, vy:Math.sin(a)*s - 1.5,
+            r:Math.random()*3+1, life: 18 + Math.floor(Math.random()*18),
+            color
+        });
+    }
+}
+
+function updateScore(){
+    scoreEl.textContent = 'Score: ' + score;
+    finalScore.textContent = 'Score: ' + score;
+}
+
+function endGame(){
+    running = false;
+    goText.textContent = 'Game Over';
+    finalScore.textContent = 'Score: ' + score;
+    gameOverEl.classList.add('show');
+}
+
+function draw(){
+    ctx.clearRect(0,0,W,H);
+    // draw container background subtle lines
+    ctx.save();
+    ctx.translate(0,0);
+    // bottom glass shadow
+    const grd = ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(255,255,255,0)');
+    grd.addColorStop(0.7,'rgba(250,250,250,0.6)');
+    grd.addColorStop(1,'rgba(240,248,255,0.8)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(6,6,W-12,H-12);
+    // frame
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3,3,W-6,H-6);
+    ctx.restore();
+
+    // shadows & fruits
+    // sort by y for simple painter's order
+    const drawList = fruits.slice().sort((a,b)=> (a.y+a.r)-(b.y+b.r));
+    // ground shadow
+    for(let f of drawList){
+        // shadow
+        const sx = f.x, sy = Math.min(H-6, f.y + f.r + 6);
+        const srad = f.r * 1.15;
+        const g = ctx.createRadialGradient(sx, sy, srad*0.1, sx, sy, srad*1.1);
+        g.addColorStop(0,'rgba(0,0,0,0.18)');
+        g.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy + 4, srad, srad*0.45, 0, 0, Math.PI*2);
+        ctx.fill();
+    }
+
+    for(let f of drawList){
+        // body
+        const meta = FRUITS[f.level];
+        const grad = ctx.createLinearGradient(f.x-f.r, f.y-f.r, f.x+f.r, f.y+f.r);
+        grad.addColorStop(0, shade(meta.color, 0.12));
+        grad.addColorStop(0.6, meta.color);
+        grad.addColorStop(1, shade(meta.color, -0.06));
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r, 0, Math.PI*2);
+        ctx.fill();
+
+        // highlight
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(255,255,255,0.28)';
+        ctx.ellipse(f.x - f.r*0.35, f.y - f.r*0.55, f.r*0.38, f.r*0.18, -0.3, 0, Math.PI*2);
+        ctx.fill();
+
+        // text (abbrev)
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.font = `${Math.max(9, Math.round(f.r*0.5))}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const label = FRUITS[f.level].name.split(' ')[0].slice(0,2).toUpperCase();
+        ctx.fillText(label, f.x, f.y);
+        // slight wobble for large
+        if(f.level >= 8){
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(0,0,0,0.04)';
+            ctx.lineWidth = 1;
+            ctx.ellipse(f.x, f.y, f.r*0.93, f.r*0.62, Math.sin(frame*0.04)*0.06, 0, Math.PI*2);
+            ctx.stroke();
+        }
+    }
+
+    // particles
+    for(let p of particles){
+        ctx.beginPath();
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life / 30;
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+
+    // preview
+    drawPreview();
+}
+
+function drawPreview(){
+    pctx.clearRect(0,0, previewCanvas.width, previewCanvas.height);
+    const cx = previewCanvas.width/2, cy=previewCanvas.height/2;
+    const r = FRUITS[nextLevel].radius * 1.6;
+    const meta = FRUITS[nextLevel];
+    const grad = pctx.createLinearGradient(cx-r,cy-r,cx+r,cy+r);
+    grad.addColorStop(0, shade(meta.color, 0.12));
+    grad.addColorStop(0.6, meta.color);
+    grad.addColorStop(1, shade(meta.color, -0.06));
+    pctx.fillStyle = grad;
+    pctx.beginPath();
+    pctx.arc(cx,cy,r,0,Math.PI*2);
+    pctx.fill();
+    pctx.fillStyle = 'rgba(255,255,255,0.9)';
+    pctx.font = `${Math.max(10, Math.round(r*0.4))}px sans-serif`;
+    pctx.textAlign='center'; pctx.textBaseline='middle';
+    pctx.fillText(meta.name.split(' ')[0].slice(0,2).toUpperCase(), cx, cy);
+}
+
+/* small utility to shade color */
+function shade(hex, percent){
+    const c = hex.replace('#','');
+    const num = parseInt(c,16);
+    let r = (num>>16) + Math.round(255*percent);
+    let g = ((num>>8)&0x00FF) + Math.round(255*percent);
+    let b = (num&0x0000FF) + Math.round(255*percent);
+    r = clamp(r,0,255); g = clamp(g,0,255); b = clamp(b,0,255);
+    return `rgb(${r},${g},${b})`;
+}
+
+/* start with a couple fruits to show behavior */
+function seedInitial(){
+    fruits = [];
+    const mid = W/2;
+    fruits.push(makeFruit(1, mid-26, H-120, 0, 0));
+    fruits.push(makeFruit(1, mid+26, H-120, 0, 0));
+    // push a few random small ones
+    for(let i=0;i<2;i++) fruits.push(makeFruit( randomInt(0,2), 60 + i*90, 80 + i*20, (Math.random()-0.5)*1.6, 0));
+    updateScore();
+}
+
+seedInitial();
+draw();
+requestAnimationFrame(tick);
+updateScore();
+
+</script>
+</body>
+</html>
