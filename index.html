@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Suika Game – Mini Demo</title>
+<style>
+    :root{
+        --glass-width: 360px;
+        --glass-height: 640px;
+        --bg:#fdeff3;
+    }
+    html,body{
+        height:100%;
+        margin:0;
+        font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto;
+        background: radial-gradient(circle at 10% 10%, #fff8fb 0%, var(--bg) 50%, #eef8ff 100%);
+        display:flex;
+        align-items:center;
+        justify-content:center;
+    }
+    .wrap{
+        width:calc(var(--glass-width) + 220px);
+        max-width:95vw;
+        display:flex;
+        gap:20px;
+        align-items:flex-start;
+    }
+    .panel{
+        width:200px;
+        padding:16px;
+        border-radius:12px;
+        background:linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.4));
+        box-shadow: 0 6px 18px rgba(20,20,40,0.08);
+        backdrop-filter: blur(6px);
+    }
+    h1{font-size:16px;margin:0 0 8px 0}
+    p{font-size:13px;color:#344;}
+    #score{font-size:22px;font-weight:600;color:#113;}
+    .small{font-size:12px;color:#556}
+    .glass{
+        width:var(--glass-width);
+        height:var(--glass-height);
+        background: linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0.12));
+        border-radius:14px;
+        padding:8px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 10px 30px rgba(40,40,80,0.08);
+        position:relative;
+    }
+    canvas{
+        width:100%;
+        height:100%;
+        display:block;
+        border-radius:10px;
+        background:linear-gradient(180deg, rgba(250,253,255,0.6), rgba(240,248,255,0.25));
+        box-shadow: inset 0 -40px 60px rgba(180,205,255,0.025);
+    }
+    .ui{
+        position:absolute;
+        left:12px; top:10px;
+        display:flex; gap:8px; align-items:center;
+        pointer-events:none;
+    }
+    .btn{
+        pointer-events:auto;
+        background:#fff;
+        border:0;
+        padding:8px 12px;
+        border-radius:10px;
+        box-shadow: 0 4px 10px rgba(10,20,40,0.06);
+        cursor:pointer;
+        font-weight:600;
+    }
+    .hint{
+        position:absolute;
+        right:12px; top:10px;
+        font-size:12px; color:#245;
+        padding:6px 10px; background:rgba(255,255,255,0.6); border-radius:10px;
+        pointer-events:none;
+    }
+    .gameover{
+        position:absolute;
+        left:0; top:50%; transform:translateY(-50%);
+        width:100%; text-align:center; pointer-events:none;
+        color:#113; font-weight:700; font-size:22px;
+        text-shadow:0 2px 8px rgba(255,255,255,0.6);
+    }
+    .mini{
+        display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;
+    }
+    .type{
+        display:flex; gap:8px; align-items:center; background:rgba(255,255,255,0.5);
+        padding:6px 8px; border-radius:8px; font-size:13px;
+    }
+    .emoji{font-size:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+    
+    <div class="glass" id="glass">
+        <canvas id="c"></canvas>
+        <div class="ui">
+            <button class="btn" id="resetBtn">Neustart</button>
+        </div>
+        <div class="hint" id="hint">Klicke, um zu fallen. Ziehe für Ziel.</div>
+        <div class="gameover" id="go" style="display:none">Game Over</div>
+    </div>
+
+    <div class="panel">
+        <h1>Suika – Mini Demo</h1>
+        <div id="score">Score: 0</div>
+        <p class="small">
+            Steuere die fallende Frucht. Kombiniere gleiche Früchte, um aufzusteigen — bis zur Wassermelone.
+        </p>
+        <div class="mini" id="legend"></div>
+        <div class="footer small">Sanfte Physik, kleine Sounds. Kein Zeitdruck.</div>
+    </div>
+</div>
+
+<script>
+
+/* ======================================================
+   FIX 1 – Sichtbare Farben (statt „transparent“)
+====================================================== */
+const types = [
+    {name:'Kirsche', emoji:'🍒', color:'#ff4b6e', r:21, value:10},
+    {name:'Erdbeere', emoji:'🍓', color:'#ff6b6b', r:28, value:20},
+    {name:'Traube', emoji:'🍇', color:'#a25bff', r:35, value:40},
+    {name:'Orange', emoji:'🍊', color:'#ffa447', r:43, value:80},
+    {name:'Apfel', emoji:'🍎', color:'#ff3b30', r:51, value:160},
+    {name:'Birne', emoji:'🍐', color:'#c7e36e', r:60, value:320},
+    {name:'Pfirsich', emoji:'🍑', color:'#ffb07a', r:68, value:640},
+    {name:'Ananas', emoji:'🍍', color:'#f3d55b', r:76, value:1280},
+    {name:'Melone', emoji:'🍈', color:'#8fd894', r:86, value:2560},
+    {name:'Suika', emoji:'🍉', color:'#4bd66f', r:100, value:5120}
+];
+
+/* ======================================================
+   Canvas Init + richtige Skalierung
+====================================================== */
+const canvas = document.getElementById("c");
+const glass  = document.getElementById("glass");
+const ctx    = canvas.getContext("2d");
+
+let W, H, scale;
+
+function resize() {
+    const rect = glass.getBoundingClientRect();
+
+    W = rect.width;
+    H = rect.height;
+    scale = window.devicePixelRatio || 1;
+
+    canvas.width  = W * scale;
+    canvas.height = H * scale;
+
+    canvas.style.width  = W + "px";
+    canvas.style.height = H + "px";
+
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+}
+
+window.addEventListener("resize", resize);
+resize();
+
+/* ======================================================
+   Rendering von Früchten
+====================================================== */
+function drawRounded(ctx,x,y,r,color,emoji){
+    ctx.save();
+    ctx.translate(x,y);
+
+    const grad = ctx.createRadialGradient(-r*0.3,-r*0.4,r*0.1, 0,0,r*1.2);
+    grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+    grad.addColorStop(0.3, 'rgba(255,255,255,0.35)');
+    grad.addColorStop(1, color);
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0,0,r,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.font = (r*1.1) + 'px serif';
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillStyle = '#222';
+
+    ctx.fillText(emoji,0,0);
+    ctx.restore();
+}
+
+/* ======================================================
+   Spielvariablen
+====================================================== */
+let fruits = [];
+let score = 0;
+let gameOver = false;
+
+let dropCooldown = 0;
+const DROP_DELAY = 0.25;
+
+/* ------------------------------------------------------
+   Grace / Safe-Time: neu geworfene Früchte sind kurz geschützt
+   (während dieser Zeit wird kein Game Over ausgelöst)
+-------------------------------------------------------*/
+const NEW_FRUIT_SAFE_TIME = 0.6; // Sekunden
+
+class Fruit {
+    constructor(x,y,type){
+        this.x=x; this.y=y;
+        this.vx=0; this.vy=0;
+        this.type=type;
+        this.r = types[type].r;
+        this.mergeCooldown = 0;
+        this.safeTime = 0; // wird beim Drop gesetzt
+    }
+    update(dt){
+        if(this.mergeCooldown>0) this.mergeCooldown -= dt;
+        if(this.safeTime>0) this.safeTime -= dt; // safeTime herunterzählen
+
+        this.vy += 1200 * dt;
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+
+        if(this.x - this.r < 4){ this.x = 4 + this.r; this.vx = 0; }
+        if(this.x + this.r > W-4){ this.x = W-4 - this.r; this.vx = 0; }
+
+        if(this.y + this.r > H - 10){
+            this.y = H - 10 - this.r;
+            if(Math.abs(this.vy)<40) this.vy=0;
+        }
+    }
+    draw(){ drawRounded(ctx,this.x,this.y,this.r,types[this.type].color,types[this.type].emoji); }
+}
+
+/* ======================================================
+   Pendel / Vorschau
+====================================================== */
+let pendulum = {
+    x:0, y:50,
+    t:0,
+    dragging:false
+};
+
+let currentTypeIndex = 0;
+
+function spawnPreview(dt){
+    pendulum.t += dt * 1.4;
+    pendulum.x = W/2 + Math.sin(pendulum.t) * (W/2 - 50);
+}
+
+/* ======================================================
+   Pointer Steuerung
+====================================================== */
+
+let mouse = {down:false};
+
+canvas.addEventListener("pointerdown", ()=>{ mouse.down=true; });
+
+window.addEventListener("pointerup", ()=>{
+    if(gameOver) return;
+    if(!mouse.down) return;
+    mouse.down=false;
+    dropFrom(pendulum.x, pendulum.y);
+});
+
+canvas.addEventListener("pointermove", e=>{
+    if(mouse.down){
+        const r = canvas.getBoundingClientRect();
+        pendulum.x = (e.clientX - r.left);
+    }
+});
+
+/* ======================================================
+   Drop-Funktion
+====================================================== */
+function dropFrom(x,y){
+    if(dropCooldown>0) return;
+    dropCooldown = DROP_DELAY;
+
+    const f = new Fruit(x,y,currentTypeIndex);
+    f.safeTime = NEW_FRUIT_SAFE_TIME; // <-- hier: kurze Schutzzeit setzen
+    fruits.push(f);
+
+    currentTypeIndex = Math.floor(Math.random()*4);
+}
+
+/* ======================================================
+   Kollisionen + Merge
+====================================================== */
+function stepCollision() {
+    for (let i = 0; i < fruits.length; i++) {
+        for (let j = i + 1; j < fruits.length; j++) {
+            const A = fruits[i], B = fruits[j];
+
+            const dx = B.x - A.x;
+            const dy = B.y - A.y;
+            const dist = Math.hypot(dx, dy);
+            const min = A.r + B.r;
+
+            if (dist < min) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+                const overlap = min - dist;
+
+                // sanfte Separation
+                const push = overlap * 0.10;
+                A.x -= nx * push;
+                A.y -= ny * push;
+                B.x += nx * push;
+                B.y += ny * push;
+
+                // sanfte Reibung
+                A.vx *= 0.85;
+                B.vx *= 0.85;
+                A.vy *= 0.95;
+                B.vy *= 0.95;
+
+                // MERGE
+                if (
+                    A.type === B.type &&
+                    A.mergeCooldown <= 0 &&
+                    B.mergeCooldown <= 0
+                ) {
+                    if (A.type === types.length - 1) {
+                        // 🔥 Zwei Suikas: einfach entfernen
+                        fruits.splice(j, 1);
+                        fruits.splice(i, 1);
+                        playPop(0.2, 900); // optional Sound
+                        score += types[A.type].value; // optional Punkte
+                        document.getElementById("score").textContent = "Score: " + score;
+                        return;
+                    } else {
+                        // normales Merge
+                        const newF = new Fruit(
+                            (A.x + B.x) / 2,
+                            (A.y + B.y) / 2,
+                            A.type + 1
+                        );
+                        newF.mergeCooldown = 0.2;
+                        newF.safeTime = 0.2; // kurz nach Merge ebenfalls geschützt
+
+                        fruits.splice(j, 1);
+                        fruits.splice(i, 1);
+                        fruits.push(newF);
+
+                        score += types[newF.type].value;
+                        document.getElementById("score").textContent = "Score: " + score;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
+
+function checkGameOver(){
+    for (let f of fruits){
+        if (f.y - f.r < 1000*scale){
+            gameOver = true;
+            goEl.style.display = 'block';
+            playGameOver();
+        }
+    }
+}
+
+
+/* ======================================================
+   Game Loop
+====================================================== */
+let last = performance.now();
+
+function loop(t){
+    const dt = Math.min(0.03,(t-last)/1000);
+    last=t;
+
+    if(dropCooldown>0) dropCooldown -= dt;
+
+    if(!gameOver){
+        for(const f of fruits) f.update(dt);
+        for(let i=0;i<3;i++) stepCollision();
+        spawnPreview(dt);
+
+        // -> Hier: Skip Früchte, die noch in der safeTime sind
+        for(const f of fruits){
+            if(f.safeTime > 0) continue;
+            if(f.y-f.r < 5){
+                gameOver=true;
+                document.getElementById("go").style.display="block";
+            }
+        }
+    }
+
+    render();
+    requestAnimationFrame(loop);
+}
+
+function render(){
+    ctx.clearRect(0,0,W,H);
+
+    for(const f of fruits) f.draw();
+
+    if(!gameOver){
+        drawRounded(ctx, pendulum.x, pendulum.y, types[currentTypeIndex].r, types[currentTypeIndex].color, types[currentTypeIndex].emoji);
+    }
+}
+
+requestAnimationFrame(loop);
+
+/* ======================================================
+   Legend
+====================================================== */
+function buildLegend(){
+    const legend=document.getElementById("legend");
+    types.forEach(t=>{
+        const d=document.createElement("div");
+        d.className="type";
+        d.innerHTML=`<span class="emoji">${t.emoji}</span>${t.name}`;
+        legend.appendChild(d);
+    });
+}
+buildLegend();
+
+/* ======================================================
+   Reset
+====================================================== */
+document.getElementById("resetBtn").addEventListener("click",()=>{
+    fruits=[];
+    score=0;
+    gameOver=false;
+    currentTypeIndex=0;
+    document.getElementById("score").textContent="Score: 0";
+    document.getElementById("go").style.display="none";
+});
+
+</script>
+</body>
+</html>
+<script>
+/* Game-over line: Position (px from top of the glass) */
+const GAME_OVER_LINE = 140; // <-- hier die Linie setzen (höher = kleinerer Wert, tiefer = größerer Wert)
+
+/* Referenzen */
+const goEl = document.getElementById('go');
+
+/* Zeichne die Markierungslinie oben im Spielkasten */
+function drawGameOverLine() {
+    if (!ctx || !W || !H) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(220,40,40,0.95)';
+    ctx.setLineDash([8,6]);
+    ctx.beginPath();
+    ctx.moveTo(10, GAME_OVER_LINE);
+    ctx.lineTo(W - 10, GAME_OVER_LINE);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(220,40,40,0.95)';
+    ctx.font = '12px Inter, system-ui, sans-serif';
+    //ctx.fillText(' ', 14, GAME_OVER_LINE - 8);
+    ctx.restore();
+}
+
+/* Polling: überprüfe Früchte gegen die neue Linie
+   Wir verwenden ein schnelles Intervall / Overlay-Loop, damit die Änderung
+   wirkt, ohne vorhandene Spielschleifen zu ändern. */
+function checkGameOverLine() {
+    if (gameOver) return;
+    for (const f of fruits) {
+        // -> Skip Früchte, die noch in der safeTime sind
+        if (f.safeTime > 0) continue;
+        if (f.y - f.r < GAME_OVER_LINE) {
+            gameOver = true;
+            goEl.style.display = 'block';
+            break;
+        }
+    }
+}
+
+/* Overlay-Render, wird nach dem Haupt-Render ausgeführt (zeichnet Linie) */
+(function overlayLoop() {
+    requestAnimationFrame(overlayLoop);
+    // Linie nur zeichnen, wenn Canvas schon gerendert ist
+    drawGameOverLine();
+})();
+// Ermögliche Maus-Steuerung der X-Position ohne gedrückte Taste
+canvas.addEventListener("pointermove", (e) => {
+    const r = canvas.getBoundingClientRect();
+    pendulum.x = (e.clientX - r.left);
+});
+
+// Override der dropFrom-Funktion nach dem Laden, um Cooldown auf 0.8s zu setzen
+setTimeout(() => {
+    window.dropFrom = function (x, y) {
+        if (dropCooldown > 0) return;
+        dropCooldown = 0.8; // neuer Cooldown: 0.8 Sekunden
+
+        const f = new Fruit(x, y, currentTypeIndex);
+        f.safeTime = NEW_FRUIT_SAFE_TIME;
+        fruits.push(f);
+
+        currentTypeIndex = Math.floor(Math.random() * 4);
+    };
+}, 0);
+
+// Drop sofort an der horizontalen Mausposition beim Betätigen
+canvas.addEventListener('pointerdown', (e) => {
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    if (typeof window.dropFrom === 'function') window.dropFrom(x, pendulum.y);
+    else dropFrom(x, pendulum.y);
+});
+function dropFrom(x, y) {
+    const MIN_DROP_INTERVAL = 0.5; // halbe Sekunde
+    if (dropCooldown > 0) return;
+    dropCooldown = MIN_DROP_INTERVAL;
+
+    const f = new Fruit(x, y, currentTypeIndex);
+    f.safeTime = NEW_FRUIT_SAFE_TIME;
+    fruits.push(f);
+
+    currentTypeIndex = Math.floor(Math.random() * 4);
+}
+/* kleine Polling-Funktion für GameOver-Check */
+setInterval(checkGameOverLine, 50);
+</script>
